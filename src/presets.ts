@@ -1,6 +1,6 @@
 type PresetType = 'video' | 'audio';
 
-interface Preset {
+export interface Preset {
   name: string | string[];
   desc: string;
   mixWith?: PresetType | PresetType[];
@@ -8,7 +8,7 @@ interface Preset {
   args?: string[];
 }
 
-export const presets: Preset[] = [
+export const presetList: Preset[] = [
   {
     name: 'mp4',
     desc: 'Highly Optimized MP4 video with very small file size, however it is VERY SLOW.',
@@ -19,20 +19,11 @@ export const presets: Preset[] = [
     ]
   },
   {
-    name: 'mp4-veryfast',
+    name: 'mp4-fast',
     desc: 'Optimized MP4 video. Faster than the default mp4 preset, but larger file size.',
     extension: 'mp4',
     args: [
       '-c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p',
-      '-c:a aac -strict experimental'
-    ]
-  },
-  {
-    name: 'mp4-ultrafast',
-    desc: 'Optimized MP4 video. Faster than the default mp4 preset, but larger file size.',
-    extension: 'mp4',
-    args: [
-      '-c:v libx264 -preset ultrafast -crf 20 -pix_fmt yuv420p',
       '-c:a aac -strict experimental'
     ]
   },
@@ -96,4 +87,16 @@ export const presets: Preset[] = [
       '-vf scale=640:-1'
     ]
   },
-]
+];
+
+export const presetMap: Record<string, Preset> = {};
+
+presetList.forEach((item) => {
+  if (typeof item.name === 'string') {
+    presetMap[item.name] = item;
+  } else {
+    item.name.forEach((name) => {
+      presetMap[name] = item;
+    })
+  }
+})
