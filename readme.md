@@ -29,5 +29,8 @@ setup
 - run `npm link` to get development version of f in your path
 - run `node dist/cli` to run f, or `f` if you linked it
 files
-- **src/cli.ts** - the cli
-- **src/presets.ts** - the presets
+- **src/cli.ts** - the cli for parsing the args you pass on the command line
+- **src/presets.ts** - the presets with args for ffmpeg
+- **src/job-runner.ts** - the thing that runs ffmpeg and parses its output
+- **src/render.ts** - thing that outputs the progress bars
+- **src/index.ts** - an api combining all the stuff if you import the node module as a node module. why
