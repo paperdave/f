@@ -123,13 +123,13 @@ export const presetList: Preset[] = [
       '-vf', 'scale={width}:{height}'
     ]
   },
-  {
-    name: 'crash',
-    desc: 'Causes an ffmpeg error.',
-    args: [
-      '-c:v', 'crash_ok_thanks'
-    ]
-  },
+  // {
+  //   name: 'crash',
+  //   desc: 'Causes an ffmpeg error.',
+  //   args: [
+  //     '-c:v', 'crash_ok_thanks'
+  //   ]
+  // },
 ];
 
 const presetMap: Record<string, Preset> = {};
