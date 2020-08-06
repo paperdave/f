@@ -5,10 +5,10 @@ import chalk from 'chalk';
 import wrap from 'wrap-ansi';
 import * as glob from 'glob';
 import os from 'os';
-import { presetMap, presetList } from './presets';
+import { presetList, getPresetFromString, PresetName } from './presets';
 import { Job, createRunner, Runner } from './job-runner';
-import { renderJobList, renderFinishedJob, renderEnd } from './render';
-import { existsSync, unlinkSync } from 'fs';
+import { renderJobList, renderFinishedJob, renderEnd, renderFailedJob } from './render';
+import { existsSync, unlinkSync, moveSync } from 'fs-extra';
 import { prompt } from 'inquirer';
 
 const argv = process.argv.slice(2).map(arg => {
@@ -17,6 +17,23 @@ const argv = process.argv.slice(2).map(arg => {
 }).flat();
 
 const width = Math.min(Yargs.terminalWidth(), 80);
+
+function getStrName(name: PresetName|PresetName[]): string {
+  if(Array.isArray(name)) {
+    return name.map(x => getStrName(x)).join(', ');
+  } else {
+    if (typeof name === 'string') {
+      return chalk.greenBright(name);
+    } else {
+      return chalk.greenBright(colorPlaceholders(name.display));
+    }
+  }
+}
+function colorPlaceholders(string: string): string {
+  return string.replace(/\{[a-zA-Z0-9_\.-]+\}/g, (chunk) => {
+    return chalk.green(chunk);
+  })
+}
 
 const yargs = Yargs(argv)
   .scriptName('f')
@@ -30,8 +47,8 @@ const yargs = Yargs(argv)
   .help()
   .epilogue([
     'Presets:',
-    ...presetList.map(({ name, desc}) => {
-      return wrap(`${typeof name === 'string' ? chalk.greenBright(name) : name.map(x => chalk.greenBright(x)).join(', ')} - ${desc}`, width - 4).replace(/^/gm, x => '    ').slice(2).replace(/^ */gm, x => chalk.black(x));
+    ...presetList.map(({ name, desc }) => {
+      return wrap(`${getStrName(name)} - ${colorPlaceholders(desc)}`, width - 4).replace(/^/gm, x => '    ').slice(2).replace(/^ */gm, x => chalk.black(x));
     }),
     chalk.black(' '),
   ].join('\n'));
@@ -53,16 +70,19 @@ const yargs = Yargs(argv)
   let lastArgType = 'unknown' as ('preset' | 'file' | 'unknown');
   async function pushJobs() {
     for (let i = 0; i < currentFiles.length; i++) {
-      const file = path.resolve(currentFiles[i]);
+      let file = path.resolve(currentFiles[i]);
       const basename = path.relative(process.cwd(), path.resolve(file)).slice(0, -path.extname(file).length);
-      const ext = currentPresets.map(key => presetMap[key].extension).filter(Boolean).pop() || path.extname(file);
+      const ext = currentPresets.map(key => getPresetFromString(key).extension).filter(Boolean).pop() || path.extname(file).slice(1);
 
       const output = path.resolve(args.output.replace(/\[name\]/g, basename).replace(/\[ext\]/g, ext))
 
       const relativeOutput = path.relative(process.cwd(), output);
 
+      let deleteSourceWhenDone = false;
+      let backupName: undefined|string = undefined;
+
       if (existsSync(output)) {
-        const response: string = overwriteOption ? overwriteOption : (await prompt({
+        let response: string = overwriteOption ? overwriteOption : (await prompt({
           name: 'response',
           type: 'expand',
           message: file === output
@@ -77,19 +97,40 @@ const yargs = Yargs(argv)
           ]
         })).response;
         if(response === 'no') process.exit();
-        if(response.startsWith('overwrite')) unlinkSync(output);
+        if(response.startsWith('overwrite')) {
+          if(file === output) {
+            deleteSourceWhenDone = true;
+            response = 'backup';
+          } else {
+            unlinkSync(output);
+          }
+        }
         if(response.startsWith('backup')) {
-          throw new Error('j');
+          const name = file === output ? 'old' : 'backup';
+          let suffix = 1;
+          backupName = `${basename}.${name}.${path.extname(file).slice(1)}`;
+          while(existsSync(backupName)) {
+            suffix += 1;
+            backupName = `${basename}.${name}${suffix}.${path.extname(file).slice(1)}`;
+          }
+          moveSync(output, backupName);
+          if(name === 'old') {
+            file = backupName;
+          } else {
+            backupName = undefined;
+          }
         }
         if(response.includes('all')) {
-          overwriteOption = response;
+          overwriteOption = response.replace('-all', '');
         }
       }
 
       jobs.push({
         file,
         presets: currentPresets.concat(),
-        output
+        output,
+        backupName,
+        deleteSourceWhenDone
       });
     }
     currentFiles = [];
@@ -97,7 +138,7 @@ const yargs = Yargs(argv)
   }
   for (let i = 0; i < positional.length; i++) {
     const arg = positional[i];
-    if (presetMap[arg]) {
+    if (getPresetFromString(arg)) {
       if (currentPresets.length && currentFiles.length && lastArgType === 'file') {
         await pushJobs();
       }
@@ -127,14 +168,7 @@ const yargs = Yargs(argv)
   console.log(`f media converter, ${queue.length} job${queue.length === 1 ? '' : 's'} queued.\n`);
 
   queue.forEach((runner) => {
-    runner.on('progress', () => {
-      renderJobList({
-        runners: running,
-        queued: queue.length,
-      });
-    })
-    runner.on('success', () => {
-      renderFinishedJob(runner);
+    function nextJob() {
       running = running.filter(x => runner !== x);
       const next = queue.pop();
       if (next) {
@@ -151,6 +185,20 @@ const yargs = Yargs(argv)
         console.log('Done Encoding!');
         console.log('');
       }
+    }
+    runner.on('progress', () => {
+      renderJobList({
+        runners: running,
+        queued: queue.length,
+      });
+    })
+    runner.on('success', () => {
+      renderFinishedJob(runner);
+      nextJob();
+    })
+    runner.on('failure', (code) => {
+      renderFailedJob(runner, code);
+      nextJob();
     })
   });
 

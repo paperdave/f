@@ -1,12 +1,14 @@
 import { EventEmitter } from "events";
 import { spawn, ChildProcessWithoutNullStreams } from "child_process";
-import { presetMap } from "./presets";
-import fs from "fs";
+import { getPresetFromString } from "./presets";
+import fs from "fs-extra";
 
 export interface Job {
   file: string;
   output: string;
   presets: string[];
+  backupName?: string;
+  deleteSourceWhenDone?: boolean;
 }
 
 export interface Runner extends EventEmitter {
@@ -15,7 +17,6 @@ export interface Runner extends EventEmitter {
   progress: number;
   job: Job;
   running: boolean;
-
   sizeBefore: number;
   sizeAfter: number;
 }
@@ -47,7 +48,7 @@ export function createRunner(ffmpeg: string, job: Job) {
     const args = [
       '-threads', `${threads}`,
       '-i', `${job.file}`,
-      ...job.presets.map(key => presetMap[key].args || []).flat(),
+      ...job.presets.map(key => getPresetFromString(key).args || []).flat(),
       `${job.output}`
     ];
     
@@ -77,8 +78,15 @@ export function createRunner(ffmpeg: string, job: Job) {
         }
       }
     }
+    let log = '';
+    log += 'f media converter log\n';
+    log += 'job:\n';
+    log += JSON.stringify(job, null, 2) + '\n';
+    log += 'command line:\n';
+    log += `ffmpeg ${args.join(' ')}\n\n`;
     let buf = '';
     proc.stderr.on('data', (data) => {
+      log += data;
       let str = buf + data.toString();
       const split = str.replace(/\r/g, '\n').split('\n');
       buf = split.pop() || '';
@@ -88,9 +96,16 @@ export function createRunner(ffmpeg: string, job: Job) {
       if(code === 0) {
         e.progress = 1;
         e.sizeAfter = fs.statSync(job.output).size;
+        if(job.deleteSourceWhenDone) {
+          fs.unlinkSync(job.file);
+        }
         e.emit('success');
       } else {
-        e.emit('failure');
+        e.emit('failure', code);
+        if(job.backupName) {
+          fs.moveSync(job.backupName, job.output);
+        }
+        fs.writeFileSync(job.output + '.error-log', log);
       }
       e.running = false;
     })

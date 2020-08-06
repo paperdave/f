@@ -1,9 +1,8 @@
-type PresetType = 'video' | 'audio';
+export type PresetName = string | { match: RegExp, args: string[], display: string };
 
 export interface Preset {
-  name: string | string[];
+  name: PresetName | PresetName[];
   desc: string;
-  mixWith?: PresetType | PresetType[];
   extension?: string;
   args?: string[];
 }
@@ -57,49 +56,123 @@ export const presetList: Preset[] = [
     desc: 'JPEG Image',
     extension: 'jpeg',
   },
+  // preset sizes
   {
-    name: 'jpeg',
-    desc: 'JPEG Image',
-    extension: 'jpeg',
-  },
-  {
-    name: ['4k', '3840x2160'],
+    name: ['4k'],
     desc: 'Resizes video to 3840x2160 (keeps source aspect ratio)',
     args: [
       '-vf', 'scale=3840:-1'
     ]
   },
   {
-    name: ['1080p', '1920x1080'],
+    name: ['1080p'],
     desc: 'Resizes video to 1920x1080 (keeps source aspect ratio)',
     args: [
       '-vf', 'scale=1920:-1'
     ]
   },
   {
-    name: ['720p', '1280x720'],
+    name: ['720p'],
     desc: 'Resizes video to 1280x720 (keeps source aspect ratio)',
     args: [
       '-vf', 'scale=1280:-1'
     ]
   },
+  // custom sizes
   {
-    name: ['640', '640x360'],
-    desc: 'Resizes video to 640x360 (keeps source aspect ratio)',
+    name: {
+      display: '{scale}x',
+      match: /^(\d*\.?\d*)w$/,
+      args: ['scale']
+    },
+    desc: 'Resizes video to be {scale} times the size of the orignal.',
     args: [
-      '-vf', 'scale=640:-1'
+      '-vf', 'scale={scale}:-1'
+    ]
+  },
+  {
+    name: {
+      display: '{width}w',
+      match: /^(\d*\.?\d*)w$/,
+      args: ['width']
+    },
+    desc: 'Resizes video to be {width} pixels wide.',
+    args: [
+      '-vf', 'scale={width}:-1'
+    ]
+  },
+  {
+    name: {
+      display: '{height}h',
+      match: /^(\d*\.?\d*)w$/,
+      args: ['height']
+    },
+    desc: 'Resizes video to be {height} pixels tall.',
+    args: [
+      '-vf', 'scale=-1:{height}'
+    ]
+  },
+  {
+    name: {
+      display: '{width}x{height}',
+      match: /^(\d*\.?\d*)x(\d*\.?\d*)$/,
+      args: ['width', 'height']
+    },
+    desc: 'Resizes video to custom resolution {width}x{height}.',
+    args: [
+      '-vf', 'scale={width}:{height}'
+    ]
+  },
+  {
+    name: 'crash',
+    desc: 'Causes an ffmpeg error.',
+    args: [
+      '-c:v', 'crash_ok_thanks'
     ]
   },
 ];
 
-export const presetMap: Record<string, Preset> = {};
+const presetMap: Record<string, Preset> = {};
 
 presetList.forEach((item) => {
   if (typeof item.name === 'string') {
     presetMap[item.name] = item;
-  } else {
+  } else if(Array.isArray(item.name)) {
     item.name.forEach((name) => {
-      presetMap[name] = item;
+      if(typeof name === 'string') {
+        presetMap[name] = item;
+      }
     })
   }
 })
+
+export function getPresetFromString(str: string): Preset {
+  let v: Preset|null = null;
+  return presetMap[str] || presetList.find(preset => {
+    return (
+      Array.isArray(preset.name)
+        ? preset.name
+        : [preset.name]
+    ).find((name) => {
+      if (typeof name !== 'string') {
+        const match = str.match(name.match);
+        if(match) {
+          v = {
+            ...preset,
+            ...preset.args ? {
+              args: preset.args.map(x => x.replace(/{[a-zA-Z0-9_\.-]+}/g, (str) => {
+                const varName = str.slice(1, -1);
+                if(name.args.includes(varName)) {
+                  return match[name.args.indexOf(varName) + 1]
+                } else {
+                  return str;
+                }
+              }))
+            } : {}
+          }
+          return true;
+        }
+      }      
+    })
+  }) && v || null;
+}

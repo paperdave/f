@@ -73,6 +73,20 @@ export function renderFinishedJob(runner: Runner) {
   ].join(' '));
 }
 
+export function renderFailedJob(runner: Runner, code: number) {
+  process.stdout.write('\u001B[?25l');
+  if(lastHeight > 0) {
+    process.stdout.write('\u001B[F' + "\u001B[A".repeat(lastHeight));
+    process.stdout.write('\u001B[2K');
+  }
+  lastHeight = 0;
+  console.log([
+    chalk.redBright(path.basename(runner.job.output)),
+    chalk.redBright(`FAILED!`),
+    chalk.red(`FFmpeg exited with error code ${code}.`),
+  ].join(' '));
+}
+
 export function renderEnd() {
   process.stdout.write('\u001B[?25h');
 }
