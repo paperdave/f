@@ -7,7 +7,7 @@ import * as glob from 'glob';
 import os from 'os';
 import { presetMap, presetList } from './presets';
 import { Job, createRunner, Runner } from './job-runner';
-import { renderJobList, renderFinishedJob } from './render';
+import { renderJobList, renderFinishedJob, renderEnd } from './render';
 
 const argv = process.argv.slice(2).map(arg => {
   const array = glob.sync(arg);
@@ -106,10 +106,16 @@ queue.forEach((runner) => {
       next.start(1);
       running.push(next);
     }
-    renderJobList({
-      runners: running,
-      queued: queue.length,
-    });
+    if (running.length > 0) {
+      renderJobList({
+        runners: running,
+        queued: queue.length,
+      });
+    } else {
+      renderEnd();
+      console.log('Done Encoding!');
+      console.log('');
+    }
   })
 });
 
