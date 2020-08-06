@@ -21,6 +21,7 @@ export interface Runner extends EventEmitter {
 }
 
 function parseTime(str: string) {
+  if(str === 'N/A') return 0;
   const [hr, min, sec] = str.split(':').map(x => parseFloat(x));
   return (hr * 60 + min) * 60 + sec;
 }
@@ -67,7 +68,7 @@ export function createRunner(ffmpeg: string, job: Job) {
       } else {
         if (line.startsWith('  Duration')) {
           try {
-            duration = (line.match(/Duration: ([0-9\.\:]+)/) as any)[1];
+            duration = (line.match(/Duration: (N\/A|[0-9\.\:]+)/) as any)[1];
           } catch (error) {
             console.log('no duration!!')
             console.log(line);

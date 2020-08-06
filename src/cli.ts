@@ -8,6 +8,8 @@ import os from 'os';
 import { presetMap, presetList } from './presets';
 import { Job, createRunner, Runner } from './job-runner';
 import { renderJobList, renderFinishedJob, renderEnd } from './render';
+import { existsSync, unlinkSync } from 'fs';
+import { prompt } from 'inquirer';
 
 const argv = process.argv.slice(2).map(arg => {
   const array = glob.sync(arg);
@@ -34,116 +36,150 @@ const yargs = Yargs(argv)
     chalk.black(' '),
   ].join('\n'));
 
-const args = yargs.argv;
-const positional = args._;
+(async() => {
+  const args = yargs.argv;
+  const positional = args._;
 
-if(positional.length === 0) {
-  yargs.showHelp();
-  process.exit(1);
-}
+  let overwriteOption: false | string = false;
 
-const jobs: Job[] = [];
-let currentFiles: string[] = [];
-let currentPresets: string[] = [];
-let lastArgType = 'unknown' as ('preset' | 'file' | 'unknown');
-function pushJobs() {
-  jobs.push(...currentFiles.map(f => path.resolve(f)).map(file => {
-    const basename = path.relative(process.cwd(), path.resolve(file)).slice(0, -path.extname(file).length);
-    const ext = currentPresets.map(key => presetMap[key].extension).filter(Boolean).pop() || path.extname(file);
-    
-    return {
-      file,
-      presets: currentPresets.concat(),
-      output: path.resolve(args.output.replace(/\[name\]/g, basename).replace(/\[ext\]/g, ext))
-    }
-  }));
-  currentFiles = [];
-  currentPresets = [];
-}
-for (let i = 0; i < positional.length; i++) {
-  const arg = positional[i];
-  if (presetMap[arg]) {
-    if (currentPresets.length && currentFiles.length && lastArgType === 'file') {
-      pushJobs();
-    }
-    currentPresets.push(arg);
-  } else {
-    if (currentPresets.length && currentFiles.length && lastArgType === 'preset') {
-      pushJobs();
-    }
-    currentFiles.push(arg);
+  if(positional.length === 0) {
+    yargs.showHelp();
+    process.exit(1);
   }
-}
-if ((currentPresets.length !== 0) || (currentFiles.length !== 0)) {
-  if ((currentPresets.length === 0)) {
-    console.log(`Presets not specified! (files: ${currentFiles.join(', ')})`)
-    process.exit();
-  }
-  if ((currentFiles.length === 0)) {
-    console.log(`Files not specified! (presets: ${currentPresets.join(', ')})`)
-    process.exit();
-  }
-  pushJobs();
-}
 
-let queue = jobs.map(x => createRunner(args.ffmpeg, x))
-let running: Runner[] = [];
+  const jobs: Job[] = [];
+  let currentFiles: string[] = [];
+  let currentPresets: string[] = [];
+  let lastArgType = 'unknown' as ('preset' | 'file' | 'unknown');
+  async function pushJobs() {
+    for (let i = 0; i < currentFiles.length; i++) {
+      const file = path.resolve(currentFiles[i]);
+      const basename = path.relative(process.cwd(), path.resolve(file)).slice(0, -path.extname(file).length);
+      const ext = currentPresets.map(key => presetMap[key].extension).filter(Boolean).pop() || path.extname(file);
 
-console.log(`f media converter, ${queue.length} job${queue.length === 1 ? '' : 's'} queued.\n`);
+      const output = path.resolve(args.output.replace(/\[name\]/g, basename).replace(/\[ext\]/g, ext))
 
-queue.forEach((runner) => {
-  runner.on('progress', () => {
-    renderJobList({
-      runners: running,
-      queued: queue.length,
-    });
-  })
-  runner.on('success', () => {
-    renderFinishedJob(runner);
-    running = running.filter(x => runner !== x);
-    const next = queue.pop();
-    if (next) {
-      next.start(1);
-      running.push(next);
+      const relativeOutput = path.relative(process.cwd(), output);
+
+      if (existsSync(output)) {
+        const response: string = overwriteOption ? overwriteOption : (await prompt({
+          name: 'response',
+          type: 'expand',
+          message: file === output
+            ? `The file ${chalk.green(relativeOutput)} is targeted to save over itself. Overwrite?`
+            : `The file ${chalk.green(relativeOutput)} already exists. Select outcome:`,
+          choices: [
+            { key: 'E', name: 'Exit', value: 'no' },
+            { key: 'O', name: 'Overwrite', value: 'overwrite' },
+            { key: 'B', name: 'Backup', value: 'backup' },
+            { key: 'A', name: 'Overwrite All', value: 'overwrite-all' },
+            { key: 'C', name: 'Backup All', value: 'backup-all' },
+          ]
+        })).response;
+        if(response === 'no') process.exit();
+        if(response.startsWith('overwrite')) unlinkSync(output);
+        if(response.startsWith('backup')) {
+          throw new Error('j');
+        }
+        if(response.includes('all')) {
+          overwriteOption = response;
+        }
+      }
+
+      jobs.push({
+        file,
+        presets: currentPresets.concat(),
+        output
+      });
     }
-    if (running.length > 0) {
+    currentFiles = [];
+    currentPresets = [];
+  }
+  for (let i = 0; i < positional.length; i++) {
+    const arg = positional[i];
+    if (presetMap[arg]) {
+      if (currentPresets.length && currentFiles.length && lastArgType === 'file') {
+        await pushJobs();
+      }
+      currentPresets.push(arg);
+    } else {
+      if (currentPresets.length && currentFiles.length && lastArgType === 'preset') {
+        await pushJobs();
+      }
+      currentFiles.push(arg);
+    }
+  }
+  if ((currentPresets.length !== 0) || (currentFiles.length !== 0)) {
+    if ((currentPresets.length === 0)) {
+      console.log(`Presets not specified! (files: ${currentFiles.join(', ')})`)
+      process.exit();
+    }
+    if ((currentFiles.length === 0)) {
+      console.log(`Files not specified! (presets: ${currentPresets.join(', ')})`)
+      process.exit();
+    }
+    await pushJobs();
+  }
+
+  let queue = jobs.map(x => createRunner(args.ffmpeg, x))
+  let running: Runner[] = [];
+
+  console.log(`f media converter, ${queue.length} job${queue.length === 1 ? '' : 's'} queued.\n`);
+
+  queue.forEach((runner) => {
+    runner.on('progress', () => {
       renderJobList({
         runners: running,
         queued: queue.length,
       });
-    } else {
-      renderEnd();
-      console.log('Done Encoding!');
-      console.log('');
-    }
-  })
-});
-
-if(queue.length > args.threads) {
-  // we need to do a different method
-  for (let i = 0; i < args.threads; i++) {
-    const element = queue.shift();
-    if(element) {
-      element.start(1);
-      running.push(element);
-    }
-  }
-} else {
-  // we can push all jobs at once
-  running = queue;
-  
-  const threads = Math.floor(args.threads / running.length);
-  const threadRemainder = args.threads - (threads * running.length);
-
-  running.forEach((runner, i) => {
-    const t = (i === 0) ? threadRemainder + threads : threads;
-    runner.start(t);
+    })
+    runner.on('success', () => {
+      renderFinishedJob(runner);
+      running = running.filter(x => runner !== x);
+      const next = queue.pop();
+      if (next) {
+        next.start(1);
+        running.push(next);
+      }
+      if (running.length > 0) {
+        renderJobList({
+          runners: running,
+          queued: queue.length,
+        });
+      } else {
+        renderEnd();
+        console.log('Done Encoding!');
+        console.log('');
+      }
+    })
   });
 
-  queue = [];
-}
+  if(queue.length > args.threads) {
+    // we need to do a different method
+    for (let i = 0; i < args.threads; i++) {
+      const element = queue.shift();
+      if(element) {
+        element.start(1);
+        running.push(element);
+      }
+    }
+  } else {
+    // we can push all jobs at once
+    running = queue;
 
-renderJobList({
-  runners: running,
-  queued: queue.length,
-});
+    const threads = Math.floor(args.threads / running.length);
+    const threadRemainder = args.threads - (threads * running.length);
+
+    running.forEach((runner, i) => {
+      const t = (i === 0) ? threadRemainder + threads : threads;
+      runner.start(t);
+    });
+
+    queue = [];
+  }
+
+  renderJobList({
+    runners: running,
+    queued: queue.length,
+  });
+})();
