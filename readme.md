@@ -15,6 +15,9 @@ you can do multiple things at once, just keep the order of preset and files the 
 - `f mp3 test1.mov mp4 test2.mov` (preset first)
 - `f test1.mov mp3 test2.mov mp4` (preset last)
 
+also, it looks like this
+![demo image](demo.png)
+
 ## 3. how do i add presets
 modify source and recompile
 
