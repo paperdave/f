@@ -1,4 +1,4 @@
-#!/usr/bin/node
+#!/usr/bin/env node
 import Yargs from 'yargs';
 import path from 'path';
 import chalk from 'chalk';
@@ -75,8 +75,15 @@ const yargs = Yargs(argv)
       const ext = currentPresets.map(key => getPresetFromString(key).extension).filter(Boolean).pop() || path.extname(file).slice(1);
 
       const output = path.resolve(args.output.replace(/\[name\]/g, basename).replace(/\[ext\]/g, ext))
-
       const relativeOutput = path.relative(process.cwd(), output);
+
+      if (!output.endsWith('.' + ext)) {
+        console.log(chalk.redBright(`Error: path ${chalk.red(relativeOutput)} has incorrect extension, expected ${chalk.red(ext)}.`));
+        console.log();
+        console.log(chalk.redBright('Make sure you specify the --output argument correctly'));
+        console.log(chalk.redBright('with [ext] to automatically fill the correct extension.'));
+        process.exit(1);
+      }
 
       let deleteSourceWhenDone = false;
       let backupName: undefined|string = undefined;
