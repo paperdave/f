@@ -16,8 +16,10 @@ const formatSize = filesize.partial({
 const boxChars = [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
 
 export function genProgressBar(progress: number, width: number) {
-  if(progress >= 1) return chalk.hsv(progress * 120, 100, 100)("█".repeat(width));
-  
+  if(progress >= 1) return chalk.hsv(120, 100, 100)("█".repeat(width));
+  if(progress <= 0) return chalk.hsv(0, 100, 50)("█".repeat(width));
+  if(isNaN(progress) || !(progress > 0 && progress < 1)) return chalk.hsv(270, 100, 50)("█".repeat(width));
+
   const wholeWidth = Math.floor(progress * width);
   const remainderWidth = (progress * width) % 1;
   const partWidth = Math.floor(remainderWidth * 8)
@@ -83,7 +85,9 @@ export function renderFailedJob(runner: Runner, code: number) {
   console.log([
     chalk.redBright(path.basename(runner.job.output)),
     chalk.redBright(`FAILED!`),
-    chalk.red(`FFmpeg exited with error code ${code}.`),
+    code === 1000
+      ? chalk.red(`An error occurred in f itself.`)
+      : chalk.red(`FFmpeg exited with error code ${code}.`),
   ].join(' '));
 }
 

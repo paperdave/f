@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import { spawn, ChildProcessWithoutNullStreams } from "child_process";
 import { getPresetFromString } from "./presets";
 import fs from "fs-extra";
+import path from "path";
 
 export interface Job {
   file: string;
@@ -9,6 +10,7 @@ export interface Job {
   presets: string[];
   backupName?: string;
   deleteSourceWhenDone?: boolean;
+  copyTimeMetaData?: boolean;
 }
 
 export interface Runner extends EventEmitter {
@@ -41,7 +43,7 @@ export function createRunner(ffmpeg: string, job: Job) {
 
   e.sizeBefore = fs.statSync(job.file).size;
 
-  e.start = (threads) => {
+  e.start = async(threads) => {
     if (e.running) return;
     e.running = true;
 
@@ -51,6 +53,8 @@ export function createRunner(ffmpeg: string, job: Job) {
       ...job.presets.map(key => getPresetFromString(key).args || []).flat(),
       `${job.output}`
     ];
+
+    await fs.ensureDir(path.dirname(job.output));
     
     proc = spawn(ffmpeg, args, { stdio: 'pipe' });
     function processLine(line: string) {
@@ -63,8 +67,11 @@ export function createRunner(ffmpeg: string, job: Job) {
           .map(s => s.split('=')));
         state.duration = duration;
 
-        e.progress = Math.min(1, Math.max(0, parseTime(state.time) / parseTime(state.duration)));
-
+        let progress = Math.min(1, Math.max(0, parseTime(state.time) / parseTime(state.duration)));
+        if(!isNaN(progress)) {
+          e.progress = progress;
+        }
+        
         e.emit('progress', e.progress);
       } else {
         if (line.startsWith('  Duration')) {
@@ -93,19 +100,35 @@ export function createRunner(ffmpeg: string, job: Job) {
       split.forEach(x => processLine(x));
     })
     proc.on('exit', (code) => {
-      if(code === 0) {
-        e.progress = 1;
-        e.sizeAfter = fs.statSync(job.output).size;
-        if(job.deleteSourceWhenDone) {
-          fs.unlinkSync(job.file);
+      try {
+        if(code === 0) {
+          e.progress = 1;
+          e.sizeAfter = fs.statSync(job.output).size;
+          if (job.copyTimeMetaData) {
+            const stat = fs.statSync(job.file);
+            fs.utimesSync(job.output, new Date(), stat.mtime);
+          }
+          if(job.deleteSourceWhenDone) {
+            fs.unlinkSync(job.file);
+          }
+          e.emit('success');
+        } else {
+          if(job.backupName) {
+            fs.moveSync(job.backupName, job.output);
+          }
+          fs.writeFileSync(job.output + '.error-log', log);
+          if(fs.pathExistsSync(job.output))fs.removeSync(job.output);
+          e.emit('failure', code);
         }
-        e.emit('success');
-      } else {
-        e.emit('failure', code);
+      } catch (error) {
+        log += '\n\nJavascript Error:';
+        log += error.stack;
+        if(fs.pathExistsSync(job.output))fs.removeSync(job.output);
+        e.emit('failure', 1000);
         if(job.backupName) {
           fs.moveSync(job.backupName, job.output);
         }
-        fs.writeFileSync(job.output + '.error-log', log);
+        fs.writeFileSync(job.output + '.error-log', log);  
       }
       e.running = false;
     })

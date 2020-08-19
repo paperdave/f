@@ -8,8 +8,15 @@ import os from 'os';
 import { presetList, getPresetFromString, PresetName } from './presets';
 import { Job, createRunner, Runner } from './job-runner';
 import { renderJobList, renderFinishedJob, renderEnd, renderFailedJob } from './render';
-import { existsSync, unlinkSync, moveSync } from 'fs-extra';
+import { existsSync, unlinkSync, moveSync, exists, pathExists } from 'fs-extra';
 import { prompt } from 'inquirer';
+import 'array-flat-polyfill';
+
+interface OutputGeneratorOptions {
+  name: string;
+  ext: string;
+  exists(path: string): boolean;
+}
 
 const argv = process.argv.slice(2).map(arg => {
   const array = glob.sync(arg);
@@ -42,8 +49,13 @@ const yargs = Yargs(argv)
   .alias('ffmpeg', 'f')
   .option('output', { default: "[name].[ext]", desc: "output path" })
   .alias('output', 'o')
+  .option('output-generator', { default: null as unknown as string, type: 'string', desc: "output name generator library" })
+  .alias('output-generator', 'O')
   .option('threads', { type: 'number', default: os.cpus().length - 1, desc: "thread count. also controls max jobs at once." })
   .alias('threads', 't')
+  .option('delete-original', { type: 'boolean', desc: "delete the original files after successful encoding" })
+  .option('copy-time-metadata', { type: 'boolean', desc: "copy time metadata" })
+  .option('verbose', { type: 'boolean', desc: "verbose boot, show entire job list" })
   .help()
   .epilogue([
     'Presets:',
@@ -64,17 +76,56 @@ const yargs = Yargs(argv)
     process.exit(1);
   }
 
+  if(args.verbose) {
+    console.log(positional.map(x => chalk[getPresetFromString(x) ? 'greenBright' : 'magentaBright'](x)).join('\n'));
+  }
+
+  let outputGenerator: null | ((o: OutputGeneratorOptions) => string) = null;
+  if(args["output-generator"]) {
+    try {
+      outputGenerator = require(path.resolve(process.cwd(), args["output-generator"]));
+    } catch (error) {
+      console.log('Could not load the output generator.\n');
+      console.log(error.stack);
+      process.exit();
+    }
+  }
+
+  const filenamesToJobs = new Map<string, Job[]>();  
   const jobs: Job[] = [];
   let currentFiles: string[] = [];
   let currentPresets: string[] = [];
   let lastArgType = 'unknown' as ('preset' | 'file' | 'unknown');
+  function queuedJobExistsByExtension(file: string) {
+    const realpath = path.resolve(process.cwd(), file);
+    return filenamesToJobs.has(realpath) || existsSync(realpath);
+  }
   async function pushJobs() {
     for (let i = 0; i < currentFiles.length; i++) {
       let file = path.resolve(currentFiles[i]);
+
+      if (!await pathExists(file)) {
+        if(glob.hasMagic(currentFiles[i])) {
+          continue;
+        }
+        console.log(chalk.redBright(`Error: file ${chalk.red(file)} does not exist.`));
+        console.log(chalk.redBright(``));
+        console.log(chalk.redBright(`You can put ? at the end of a filename to make it optional.`));
+        console.log(chalk.redBright(`Glob matches that match to nothing will also be optional.`));
+        process.exit(1);
+      }
+
       const basename = path.relative(process.cwd(), path.resolve(file)).slice(0, -path.extname(file).length);
       const ext = currentPresets.map(key => getPresetFromString(key).extension).filter(Boolean).pop() || path.extname(file).slice(1);
 
-      const output = path.resolve(args.output.replace(/\[name\]/g, basename).replace(/\[ext\]/g, ext))
+      const output =
+        outputGenerator
+          ? path.resolve(await outputGenerator({
+              name: basename,
+              ext,
+              exists: queuedJobExistsByExtension
+            }))
+          : path.resolve(args.output.replace(/\[name\]/g, basename).replace(/\[ext\]/g, ext))
       const relativeOutput = path.relative(process.cwd(), output);
 
       if (!output.endsWith('.' + ext)) {
@@ -132,13 +183,18 @@ const yargs = Yargs(argv)
         }
       }
 
-      jobs.push({
+      deleteSourceWhenDone = deleteSourceWhenDone || args["delete-original"] || false;
+
+      const job: Job = {
         file,
         presets: currentPresets.concat(),
         output,
         backupName,
-        deleteSourceWhenDone
-      });
+        deleteSourceWhenDone,
+        copyTimeMetaData: args["copy-time-metadata"],
+      }
+      jobs.push(job);
+      filenamesToJobs.set(job.output, (filenamesToJobs.get(job.output) || []).concat(job))
     }
     currentFiles = [];
     currentPresets = [];
@@ -150,11 +206,13 @@ const yargs = Yargs(argv)
         await pushJobs();
       }
       currentPresets.push(arg);
+      lastArgType = 'preset';
     } else {
       if (currentPresets.length && currentFiles.length && lastArgType === 'preset') {
         await pushJobs();
       }
       currentFiles.push(arg);
+      lastArgType = 'file';
     }
   }
   if ((currentPresets.length !== 0) || (currentFiles.length !== 0)) {
@@ -169,9 +227,28 @@ const yargs = Yargs(argv)
     await pushJobs();
   }
 
+  let hasPrintedConflictingHeader = false;
+  filenamesToJobs.forEach((value) => {
+    if(value.length > 1) {
+      if (!hasPrintedConflictingHeader) {
+        console.log('Cannot run jobs: There are conflicting files.')
+        console.log('')
+        hasPrintedConflictingHeader = true;
+      }
+
+      console.log(value.map(x => '- ' + chalk.yellowBright(x.file)).join('\n'));
+      console.log(`  all output to ${chalk.magentaBright(value[0].output)}`);
+      console.log('')
+    }
+  })
+  
+  if (hasPrintedConflictingHeader) {
+    process.exit();
+  }
+  
   let queue = jobs.map(x => createRunner(args.ffmpeg, x))
   let running: Runner[] = [];
-
+  
   console.log(`f media converter, ${queue.length} job${queue.length === 1 ? '' : 's'} queued.\n`);
 
   queue.forEach((runner) => {

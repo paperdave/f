@@ -1,12 +1,13 @@
 {
   "name": "ffmpeg-f",
-  "version": "1.0.1",
+  "version": "1.1.1",
   "description": "ffmpeg wrapper",
   "main": "dist/index.js",
   "bin": {
     "f": "dist/cli.js"
   },
   "dependencies": {
+    "array-flat-polyfill": "^1.0.1",
     "chalk": "^4.1.0",
     "columnify": "^1.5.4",
     "filesize": "^6.1.0",

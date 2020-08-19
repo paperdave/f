@@ -24,6 +24,21 @@ export const presetList: Preset[] = [
     ]
   },
   {
+    name: 'mp4-small',
+    desc: 'Highly Compressed MP4 video with very small file size, however it is VERY SLOW.',
+    extension: 'mp4',
+    args: [
+      // video
+      '-c:v', 'libx264',
+      '-preset', 'veryslow',
+      '-crf', '22',
+      '-pix_fmt', 'yuv420p',
+      // audio
+      '-c:a', 'aac',
+      '-strict', 'experimental'
+    ]
+  },
+  {
     name: 'mp4-fast',
     desc: 'Optimized MP4 video. Faster than the default mp4 preset, but larger file size.',
     extension: 'mp4',
@@ -47,8 +62,20 @@ export const presetList: Preset[] = [
     ]
   },
   {
-    name: 'png',
+    name: 'png-fast',
     desc: 'PNG Image',
+    args: [
+      '-compression_level', '100'
+    ],
+    extension: 'png',
+  },
+  {
+    name: 'png',
+    desc: 'PNG Image, optimized with palettegen',
+    args: [
+      '-compression_level', '100',
+      '-filter_complex', 'palettegen[pal];[0][pal]paletteuse,format=pal8',
+    ],
     extension: 'png',
   },
   {
@@ -82,12 +109,12 @@ export const presetList: Preset[] = [
   {
     name: {
       display: '{scale}x',
-      match: /^(\d*\.?\d*)w$/,
+      match: /^(\d*\.?\d*)x$/,
       args: ['scale']
     },
     desc: 'Resizes video to be {scale} times the size of the orignal.',
     args: [
-      '-vf', 'scale={scale}:-1'
+      '-vf', 'scale=\'(iw*{scale})\':\'(ih*{scale})\':flags=neighbor'
     ]
   },
   {
@@ -104,7 +131,7 @@ export const presetList: Preset[] = [
   {
     name: {
       display: '{height}h',
-      match: /^(\d*\.?\d*)w$/,
+      match: /^(\d*\.?\d*)h$/,
       args: ['height']
     },
     desc: 'Resizes video to be {height} pixels tall.',
@@ -121,6 +148,53 @@ export const presetList: Preset[] = [
     desc: 'Resizes video to custom resolution {width}x{height}.',
     args: [
       '-vf', 'scale={width}:{height}'
+    ]
+  },
+  {
+    name: {
+      display: 'max={width}x{height}',
+      match: /^max=(\d*\.?\d*)x(\d*\.?\d*)$/,
+      args: ['width', 'height']
+    },
+    desc: 'Resizes video to be {width}x{height} or smaller.',
+    args: [
+      '-vf', `scale='min({width},iw)':min'({height},ih)':force_original_aspect_ratio=decrease`
+    ]
+  },
+  {
+    name: {
+      display: 'max={width}w',
+      match: /^max=(\d*\.?\d*)w$/,
+      args: ['width']
+    },
+    desc: 'Resizes video to be {width}x{height} or smaller.',
+    args: [
+      '-vf', `scale='min({width},iw)':-1`
+    ]
+  },
+  {
+    name: {
+      display: 'max={height}h',
+      match: /^max=(\d*\.?\d*)h$/,
+      args: ['height']
+    },
+    desc: 'Resizes video to be {width}x{height} or smaller.',
+    args: [
+      '-vf', `scale=-1:min({height},ih)`
+    ]
+  },
+  {
+    name: 'crop-square',
+    desc: 'Crops a video to be a square.',
+    args: [
+      '-vf', `crop='min(iw,ih)':'min(iw,ih)'`
+    ]
+  },
+  {
+    name: 'crop-mod-2',
+    desc: 'Fix a bug with mp4',
+    args: [
+      '-vf', `crop='iw-mod(iw,2)':'ih-mod(ih,2)'`
     ]
   },
   // {
