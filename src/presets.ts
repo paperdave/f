@@ -9,14 +9,29 @@ export interface Preset {
 
 export const presetList: Preset[] = [
   {
-    name: 'mp4',
-    desc: 'Highly Optimized MP4 video with very small file size, however it is VERY SLOW.',
+    name: 'mp4-hq',
+    desc: 'Highly Optimized MP4 video with small file size at near lossless quality, however it is VERY SLOW.',
     extension: 'mp4',
     args: [
       // video
       '-c:v', 'libx264',
       '-preset', 'veryslow',
       '-crf', '20',
+      '-pix_fmt', 'yuv420p',
+      // audio
+      '-c:a', 'aac',
+      '-strict', 'experimental'
+    ]
+  },
+  {
+    name: 'mp4-md',
+    desc: 'Highly Optimized MP4 video with very small file size at medium quality, however it is VERY SLOW. Good for long videos.',
+    extension: 'mp4',
+    args: [
+      // video
+      '-c:v', 'libx264',
+      '-preset', 'veryslow',
+      '-crf', '30',
       '-pix_fmt', 'yuv420p',
       // audio
       '-c:a', 'aac',
@@ -169,7 +184,7 @@ export const presetList: Preset[] = [
     },
     desc: 'Resizes video to be {width}x{height} or smaller.',
     args: [
-      '-vf', `scale='min({width},iw)':-1`
+      '-vf', `scale='min({width},iw)':'-1'`,
     ]
   },
   {
