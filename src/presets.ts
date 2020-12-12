@@ -77,6 +77,11 @@ export const presetList: Preset[] = [
     ]
   },
   {
+    name: 'ogg',
+    desc: 'OGG Audio',
+    extension: 'ogg',
+  },
+  {
     name: 'png-fast',
     desc: 'PNG Image',
     args: [
