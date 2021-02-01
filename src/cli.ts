@@ -178,7 +178,7 @@ const yargs = Yargs(argv)
             backupName = undefined;
           }
         }
-        if(response.includes('all')) {
+        if(response.endsWith('-all')) {
           overwriteOption = response.replace('-all', '');
         }
       }
